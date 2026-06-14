@@ -15,23 +15,29 @@ var VISION = { model:null, type:null, ready:false, loading:false, inputSize:224,
 
 /* Pemetaan kelas → sub-kategori organik JALARI (berbasis kata kunci, kompatibel
    dengan 36 kelas dataset Kritik Seth maupun label ImageNet MobileNet). */
-var BUAH_KW  = ['apple','banana','grape','kiwi','lemon','lime','mango','orange','pear','pineapple','pomegranate','watermelon','fig','strawberry','jackfruit','custard apple','granny smith','melon'];
-var SAYUR_KW = ['beet','bell pepper','pepper','cabbage','capsicum','carrot','cauliflower','chilli','chili','sweetcorn','sweet corn','corn','cucumber','eggplant','aubergine','garlic','ginger','jalepeno','jalapeno','lettuce','onion','paprika','peas','pea','sweetpotato','sweet potato','potato','raddish','radish','soy','spinach','tomato','turnip','zucchini','courgette','squash','broccoli','artichoke','mushroom','cardoon'];
+var CATS = ['buah','sayur','daging','tulang','lainnya'];
+var BUAH_KW   = ['apple','banana','grape','kiwi','lemon','lime','mango','orange','pear','pineapple','pomegranate','watermelon','fig','strawberry','jackfruit','custard apple','granny smith','melon'];
+var SAYUR_KW  = ['beet','bell pepper','pepper','cabbage','capsicum','carrot','cauliflower','chilli','chili','sweetcorn','sweet corn','corn','cucumber','eggplant','aubergine','garlic','ginger','jalepeno','jalapeno','lettuce','onion','paprika','peas','pea','sweetpotato','sweet potato','potato','raddish','radish','soy','spinach','tomato','turnip','zucchini','courgette','squash','broccoli','artichoke','mushroom','cardoon'];
+var DAGING_KW = ['daging','meat','beef','steak','pork','mutton','lamb','sapi','ayam','chicken','poultry','fillet','sausage','sosis','ham','bacon','nugget'];
+var TULANG_KW = ['tulang','fishbone','fish bone','bone','rib','iga','spine','skeleton'];
 
 function categorize(name){
-  name = (name||'').toLowerCase();
+  name = (name||'').toLowerCase().trim();
+  if(CATS.indexOf(name)>=0 || name==='nasi' || name==='lauk') return name; // label model kustom = kategori langsung
+  for(var t=0;t<TULANG_KW.length;t++) if(name.indexOf(TULANG_KW[t])>=0) return 'tulang';
+  for(var d=0;d<DAGING_KW.length;d++) if(name.indexOf(DAGING_KW[d])>=0) return 'daging';
   for(var i=0;i<BUAH_KW.length;i++) if(name.indexOf(BUAH_KW[i])>=0) return 'buah';
   for(var j=0;j<SAYUR_KW.length;j++) if(name.indexOf(SAYUR_KW[j])>=0) return 'sayur';
   return 'lainnya';
 }
-function catLabel(k){ return k==='buah'?'Buah':k==='sayur'?'Sayur':k==='nasi'?'Nasi/Karbo':k==='lauk'?'Lauk':'Lainnya'; }
-function catColor(k){ return k==='buah'?'#d97706':k==='sayur'?'#16a34a':k==='nasi'?'#0284c7':k==='lauk'?'#7c3aed':'#94a3b8'; }
+function catLabel(k){ return k==='buah'?'Buah':k==='sayur'?'Sayur':k==='daging'?'Daging':k==='tulang'?'Tulang':k==='nasi'?'Nasi/Karbo':k==='lauk'?'Lauk':'Lainnya'; }
+function catColor(k){ return k==='buah'?'#d97706':k==='sayur'?'#16a34a':k==='daging'?'#dc2626':k==='tulang'?'#a8a29e':k==='nasi'?'#0284c7':k==='lauk'?'#7c3aed':'#94a3b8'; }
 
 /* ============ KOMPOSISI (persistensi hasil deteksi) ============ */
-function compGet(){ try{ var c=JSON.parse(localStorage.getItem('jalari_komposisi')); if(c) return c; }catch(e){} return {buah:0,sayur:0,nasi:0,lauk:0,lainnya:0}; }
+function compGet(){ try{ var c=JSON.parse(localStorage.getItem('jalari_komposisi')); if(c) return c; }catch(e){} return {buah:0,sayur:0,daging:0,tulang:0,lainnya:0}; }
 function compSave(c){ localStorage.setItem('jalari_komposisi', JSON.stringify(c)); }
 function compAdd(kat){ var c=compGet(); if(c[kat]===undefined) c.lainnya++; else c[kat]++; compSave(c); return c; }
-function compReset(){ var c={buah:0,sayur:0,nasi:0,lauk:0,lainnya:0}; compSave(c); return c; }
+function compReset(){ var c={buah:0,sayur:0,daging:0,tulang:0,lainnya:0}; compSave(c); return c; }
 function compTotal(c){ var t=0; for(var k in c) t+=c[k]; return t; }
 
 /* ============ LOAD MODEL (lazy + cache) ============ */
@@ -88,11 +94,11 @@ function pgVision(pc){
     : 'Model dimuat saat klasifikasi pertama (lazy-load).';
 
   pc.innerHTML = [
-    '<div class="page-header"><div><h1 class="page-title">Visi AI — Klasifikasi Limbah</h1><p class="page-subtitle">Deteksi sub-kategori organik (Buah & Sayur) via MobileNetV2 / TensorFlow.js</p></div></div>',
+    '<div class="page-header"><div><h1 class="page-title">Visi AI — Klasifikasi Limbah</h1><p class="page-subtitle">Deteksi sub-kategori organik MBG (Buah · Sayur · Daging · Tulang) via MobileNetV2 / TensorFlow.js</p></div></div>',
 
     '<div class="section-card"><div class="section-header"><div class="section-title">Cara Kerja & Keterbatasan</div></div><div class="section-body">',
-    '<p style="font-size:13px;color:var(--c-text-secondary);line-height:1.6">Unggah/ambil foto limbah → model klasifikasi citra menentukan jenis (mis. apel, wortel) → dipetakan ke sub-kategori <b>Buah</b> / <b>Sayur</b> → memperbarui donut komposisi. ',
-    '<span style="color:var(--c-accent)">Catatan jujur:</span> dataset hanya buah & sayur utuh — nasi, lauk, dan sisa tercampur belum tercakup (perlu dataset kustom fase 2). Confidence ditampilkan agar ketidakpastian transparan (sejalan dengan prinsip XAI proyek).</p>',
+    '<p style="font-size:13px;color:var(--c-text-secondary);line-height:1.6">Unggah/ambil foto limbah → model klasifikasi citra menentukan jenis → dipetakan ke 4 sub-kategori organik MBG: <b>Buah</b> · <b>Sayur</b> · <b>Daging</b> · <b>Tulang</b> → memperbarui donut komposisi. ',
+    '<span style="color:var(--c-accent)">Catatan jujur:</span> Nasi/karbohidrat & sisa makanan tercampur belum tercakup model ini (perlu dataset kustom lanjutan). Confidence ditampilkan agar ketidakpastian transparan (sejalan dengan prinsip XAI proyek).</p>',
     '<div class="info-row" style="margin-top:8px"><span class="info-label">Status Model</span><span class="info-value" id="vModelNote">'+modelNote+'</span></div>',
     '</div></div>',
 

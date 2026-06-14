@@ -202,6 +202,8 @@ Untuk implementasi nyata pasca-MVP, selaras dengan halaman Device:
 5. **Fase 4** — jalur ESP32-CAM (opsional, jika hardware siap).
 
 ---
+> **Pembaruan v1.1 (14 Juni 2026):** Skema diperluas ke **4 kelas limbah organik MBG** — buah, sayur, daging, tulang. Fase 3 (frontend `vision.js` + halaman Visi AI) **sudah diimplementasikan & live**. Fase 1–2 dikemas jadi notebook 1-klik [`notebooks/jalari_vision_train.ipynb`](notebooks/jalari_vision_train.ipynb); dataset & instruksi di [DATASET_DAN_TRAINING_VISI_AI.md](DATASET_DAN_TRAINING_VISI_AI.md).
+
 *Dokumen rencana — siap dieksekusi. Setelah disetujui, langkah berikutnya adalah membuat notebook pelatihan (Fase 1) atau langsung membangun `vision.js` bila model sudah tersedia.*
 
 **Sumber:**
