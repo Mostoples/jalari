@@ -1,0 +1,11 @@
+# ============ API KEYS - JANGAN PERNAH COMMIT! ============
+.gemini_api_keys.env
+*.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log

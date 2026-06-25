@@ -107,6 +107,10 @@
           <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
         </svg>
       </button>
+      <div class="topbar-brand-mob" aria-hidden="true">
+        <div class="topbar-brand-icon">J</div>
+        <span class="topbar-brand-name">JALARI</span>
+      </div>
       <div class="topbar-breadcrumb" id="topbarBreadcrumb">
         <span class="breadcrumb-icon">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -148,13 +152,43 @@
   </main>
 
   <footer class="page-footer">
-    <span>JALARI v2.0 &nbsp;&middot;&nbsp; OPSI 2026 &nbsp;&middot;&nbsp; SMAN 3 Yogyakarta</span>
+    <span>JALARI v3.1 &nbsp;&middot;&nbsp; OPSI 2026 &nbsp;&middot;&nbsp; SMAN 3 Yogyakarta</span>
     <span>Adelio Fahri Faradish &amp; Rafael Maruli Errando Sinaga</span>
   </footer>
 
 </div><!-- /main-wrapper -->
 
 <div id="onboardingRoot"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<!-- ===== MOBILE BOTTOM NAV ===== -->
+<nav class="mobile-nav" id="mobileNav" aria-label="Navigasi utama">
+  <div class="mobile-nav-inner">
+    <a href="#/home" class="mob-link active" data-page="home" aria-label="Beranda">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <span>Beranda</span>
+    </a>
+    <a href="#/measurement" class="mob-link" data-page="measurement" aria-label="Pengukuran">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>
+      <span>Ukur</span>
+    </a>
+    <a href="#/sensors" class="mob-link" data-page="sensors" aria-label="Sensor">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+      <span>Sensor</span>
+    </a>
+    <a href="#/vision" class="mob-link" data-page="vision" aria-label="Visi AI">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      <span>Visi AI</span>
+    </a>
+    <button class="mob-link mob-link-more" id="mobileNavMore" type="button" aria-label="Menu lainnya">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      <span>Menu</span>
+    </button>
+  </div>
+</nav>
+
 <script src="js/vision.js"></script>
 <script src="js/main.js"></script>
 </body>

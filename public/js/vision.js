@@ -11,7 +11,7 @@
 'use strict';
 
 /* ============ STATE ============ */
-var VISION = { model:null, type:null, ready:false, loading:false, inputSize:224, labels:null, previewEl:null, lastResult:null };
+var VISION = { model:null, type:null, ready:false, loading:false, inputSize:224, labels:null, previewEl:null, lastResult:null, stopAll:null };
 
 /* Pemetaan kelas → sub-kategori organik JALARI (berbasis kata kunci, kompatibel
    dengan 36 kelas dataset Kritik Seth maupun label ImageNet MobileNet). */
@@ -87,6 +87,71 @@ function visionClassify(imgEl){
   return Promise.resolve(arr.slice(0,5));
 }
 
+/* ============================================================
+   ESP32-CAM MODULE — Live Stream via Firebase IP Discovery
+   ============================================================ */
+var ESP32 = {
+  camIP: null,          // IP address string
+  streamURL: null,      // MJPEG stream URL
+  captureURL: null,     // Capture/snapshot URL
+  stillURL: null,       // Single frame URL
+  polling: false,       // Polling flag
+  pollTimer: null,      // Interval handle
+  connected: false,     // Connection state
+  lastCheck: 0
+};
+
+function esp32LoadFromFirebase(callback) {
+  var url = 'https://jalari-eac18-default-rtdb.asia-southeast1.firebasedatabase.app/esp32cam.json';
+  return fetch(url, {cache:'no-store'})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if(data && data.ip){
+        ESP32.camIP      = data.ip;
+        ESP32.streamURL  = data.stream || 'http://' + data.ip + ':81/stream';
+        ESP32.captureURL = data.capture || 'http://' + data.ip + '/capture';
+        ESP32.stillURL   = data.still || 'http://' + data.ip + '/cam.jpg';
+        ESP32.connected  = true;
+        console.log('[ESP32-CAM] Found at', data.ip);
+        if(callback) callback(null, data);
+        return data;
+      }
+      var err = new Error('ESP32-CAM belum terdaftar');
+      console.warn('[ESP32-CAM] Not found in Firebase');
+      if(callback) callback(err);
+      throw err;
+    })
+    .catch(function(e){
+      ESP32.connected = false;
+      console.warn('[ESP32-CAM] Firebase fetch fail:', e.message);
+      if(callback) callback(e);
+      throw e;
+    });
+}
+
+function esp32StartPolling(callback, interval){
+  if(ESP32.polling) return;
+  ESP32.polling = true;
+  var ms = interval || 10000; // default every 10s
+  function poll(){
+    esp32LoadFromFirebase().then(function(){
+      if(callback) callback(null);
+    }).catch(function(e){
+      if(callback) callback(e);
+    });
+  }
+  poll(); // immediate check
+  ESP32.pollTimer = setInterval(poll, ms);
+}
+function esp32StopPolling(){
+  ESP32.polling = false;
+  if(ESP32.pollTimer){ clearInterval(ESP32.pollTimer); ESP32.pollTimer = null; }
+}
+
+function esp32StreamStarted() {
+  return !!(ESP32.streamURL && ESP32.connected);
+}
+
 /* ============ HALAMAN: VISI AI ============ */
 function pgVision(pc){
   var modelNote = VISION.ready
@@ -100,22 +165,68 @@ function pgVision(pc){
     '<p style="font-size:13px;color:var(--c-text-secondary);line-height:1.6">Unggah/ambil foto limbah → model klasifikasi citra menentukan jenis → dipetakan ke 4 sub-kategori organik MBG: <b>Buah</b> · <b>Sayur</b> · <b>Daging</b> · <b>Tulang</b> → memperbarui donut komposisi. ',
     '<span style="color:var(--c-accent)">Catatan jujur:</span> Nasi/karbohidrat & sisa makanan tercampur belum tercakup model ini (perlu dataset kustom lanjutan). Confidence ditampilkan agar ketidakpastian transparan (sejalan dengan prinsip XAI proyek).</p>',
     '<div class="info-row" style="margin-top:8px"><span class="info-label">Status Model</span><span class="info-value" id="vModelNote">'+modelNote+'</span></div>',
+    '<div class="info-row"><span class="info-label">ESP32-CAM</span><span class="info-value" id="vEspStatus" style="font-size:12px">Mendeteksi...</span></div>',
     '</div></div>',
 
-    '<div class="grid-2">',
-    // INPUT
-    '<div class="section-card"><div class="section-header"><div class="section-title">Input Gambar</div></div><div class="section-body">',
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">',
-    '<label class="btn btn-primary" style="cursor:pointer">Unggah Gambar<input type="file" id="vFile" accept="image/*" style="display:none"></label>',
-    '<button class="btn btn-outline" id="vCamBtn">Buka Kamera</button>',
-    '<button class="btn btn-primary" id="vRun" disabled>Klasifikasi</button>',
+    // INPUT / ESP32-CAM STREAM
+    '<div class="section-card"><div class="section-header"><div class="section-title">📷 Input Gambar / Kamera JT</div></div><div class="section-body">',
+
+    // Tabs: Upload vs ESP32-CAM
+    '<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">',
+    '<button class="btn btn-primary btn-sm" id="vTabUpload" data-tab="upload">📱 Unggah</button>',
+    '<button class="btn btn-outline btn-sm" id="vTabEsp" data-tab="esp">📡 ESP32-CAM</button>',
+    '<button class="btn btn-outline btn-sm" id="vTabDeviceCam" data-tab="devicecam">📹 Kamera Device</button>',
     '</div>',
-    '<div id="vStage" style="border:1px dashed var(--c-border);border-radius:10px;min-height:220px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--c-bg-subtle,transparent)">',
-    '<span style="font-size:13px;color:var(--c-text-muted)">Belum ada gambar</span>',
+
+    // === TAB: Upload ===
+    '<div id="vTabUploadContent" style="display:block">',
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">',
+    '<label class="btn btn-primary" style="cursor:pointer;flex:1 1 auto;text-align:center">📷 Pilih Gambar<input type="file" id="vFile" accept="image/*" capture="environment" style="display:none"></label>',
+    '</div>',
+    '<div id="vStageUpload" style="border:1px dashed var(--c-border);border-radius:10px;min-height:160px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--c-bg-subtle,transparent)">',
+    '<span style="font-size:13px;color:var(--c-text-muted)">Upload gambar dari galeri</span>',
+    '</div>',
+    '</div>',
+
+    // === TAB: ESP32-CAM ===
+    '<div id="vTabEspContent" style="display:none">',
+    '<div id="vEspInfo" style="font-size:12px;color:var(--c-text-muted);margin-bottom:8px">Mencari ESP32-CAM...</div>',
+    '<div id="vEspLiveContainer" style="display:none;position:relative">',
+    '<img id="vEspStream" src="" style="width:100%;max-width:640px;border-radius:10px;background:#000;display:block;margin:0 auto" alt="ESP32-CAM Live">',
+    '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">',
+    '<button class="btn btn-primary" id="vEspCapture" style="flex:1">📸 Snapshot</button>',
+    '<button class="btn btn-outline" id="vEspClassify" disabled style="flex:1">🔍 Klasifikasi Snapshot</button>',
+    '</div>',
+    '</div>',
+    '<div id="vEspNoCam" style="display:none;padding:20px;text-align:center;border:1px dashed var(--c-border);border-radius:10px">',
+    '<p style="font-size:14px;color:var(--c-text-muted)">⏳ ESP32-CAM tidak ditemukan</p>',
+    '<p style="font-size:12px;color:var(--c-text-muted);margin-top:4px">Pastikan ESP32-CAM menyala dan satu jaringan dengan perangkat ini.</p>',
+    '<button class="btn btn-outline btn-sm" id="vEspRetry" style="margin-top:8px">🔄 Cari Ulang</button>',
+    '</div>',
+    '</div>',
+
+    // === TAB: Device Camera ===
+    '<div id="vTabDeviceCamContent" style="display:none">',
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">',
+    '<button class="btn btn-outline" id="vCamBtn">📹 Buka Kamera</button>',
+    '</div>',
+    '<div id="vStageCam" style="border:1px dashed var(--c-border);border-radius:10px;min-height:160px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--c-bg-subtle,transparent)">',
+    '<span style="font-size:13px;color:var(--c-text-muted)">Gunakan kamera perangkat</span>',
     '</div>',
     '<video id="vVideo" autoplay playsinline style="display:none;width:100%;border-radius:10px;margin-top:10px"></video>',
     '<canvas id="vCanvas" style="display:none"></canvas>',
     '<button class="btn btn-outline btn-sm" id="vCapture" style="display:none;margin-top:8px">Ambil Foto</button>',
+    '</div>',
+
+    '</div></div>',
+
+    // COMMON: Preview stage + classify
+    '<div class="grid-2">',
+    '<div class="section-card"><div class="section-header"><div class="section-title">📸 Preview</div></div><div class="section-body">',
+    '<div id="vStage" style="border:1px dashed var(--c-border);border-radius:10px;min-height:150px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--c-bg-subtle,transparent)">',
+    '<span style="font-size:13px;color:var(--c-text-muted)">Pilih gambar dari salah satu tab di atas</span>',
+    '</div>',
+    '<button class="btn btn-primary" id="vRun" disabled style="margin-top:10px;width:100%">🔍 Klasifikasi</button>',
     '</div></div>',
     // RESULT
     '<div class="section-card"><div class="section-header"><div class="section-title">Hasil Klasifikasi</div></div><div class="section-body" id="vResult">',
@@ -123,67 +234,238 @@ function pgVision(pc){
     '</div></div>',
     '</div>',
 
-    // KOMPOSISI TERDETEKSI
+    // KOMPOSISI
     '<div class="section-card"><div class="section-header"><div class="section-title">Komposisi Organik Terdeteksi (akumulasi)</div><button class="btn btn-outline btn-sm" id="vReset">Reset</button></div><div class="section-body"><div class="grid-2" style="align-items:center">',
     '<div class="chart-wrapper chart-wrapper--donut" style="height:220px;position:relative"><canvas id="cComp"></canvas></div>',
     '<div id="vCompLegend"></div>',
     '</div></div></div>'
   ].join('');
 
-  // ---- referensi elemen ----
-  var stage=document.getElementById('vStage'), runBtn=document.getElementById('vRun');
-  var fileInp=document.getElementById('vFile'), camBtn=document.getElementById('vCamBtn');
-  var video=document.getElementById('vVideo'), canvas=document.getElementById('vCanvas'), capBtn=document.getElementById('vCapture');
-  var stream=null;
+  // ---- DOM refs ----
+  var stage      = document.getElementById('vStage');
+  var runBtn     = document.getElementById('vRun');
+  var resultDiv  = document.getElementById('vResult');
+  var espStatus  = document.getElementById('vEspStatus');
+  var espInfo    = document.getElementById('vEspInfo');
+  var espLive    = document.getElementById('vEspLiveContainer');
+  var espNoCam   = document.getElementById('vEspNoCam');
+  var espImg     = document.getElementById('vEspStream');
+  var tabUpload  = document.getElementById('vTabUpload');
+  var tabEsp     = document.getElementById('vTabEsp');
+  var tabDevCam  = document.getElementById('vTabDeviceCam');
 
+  // ---- Functions ----
   function setPreview(src){
-    stage.innerHTML='<img id="vImg" src="'+src+'" crossorigin="anonymous" style="max-width:100%;max-height:280px;border-radius:8px">';
-    VISION.previewEl=document.getElementById('vImg');
-    runBtn.disabled=false;
+    stage.innerHTML = '<img id="vImg" src="'+src+'" crossorigin="anonymous" style="max-width:100%;max-height:280px;border-radius:8px">';
+    VISION.previewEl = document.getElementById('vImg');
+    runBtn.disabled = false;
   }
-  function stopCam(){ if(stream){ stream.getTracks().forEach(function(t){t.stop();}); stream=null; } video.style.display='none'; capBtn.style.display='none'; }
 
-  // Upload
-  fileInp.addEventListener('change', function(e){
-    var f=e.target.files&&e.target.files[0]; if(!f) return; stopCam();
-    var rd=new FileReader(); rd.onload=function(ev){ setPreview(ev.target.result); }; rd.readAsDataURL(f);
+  // Tab switching
+  function switchTab(tab){
+    document.getElementById('vTabUploadContent').style.display    = (tab==='upload')    ? 'block' : 'none';
+    document.getElementById('vTabEspContent').style.display      = (tab==='esp')       ? 'block' : 'none';
+    document.getElementById('vTabDeviceCamContent').style.display = (tab==='devicecam') ? 'block' : 'none';
+    [tabUpload, tabEsp, tabDevCam].forEach(function(b){
+      b.className = b.getAttribute('id')===('vTab'+tab.charAt(0).toUpperCase()+tab.slice(1)) ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm';
+    });
+    if(tab==='esp') esp32Check();
+  }
+  tabUpload.addEventListener('click', function(){ switchTab('upload'); });
+  tabEsp.addEventListener('click', function(){ switchTab('esp'); });
+  tabDevCam.addEventListener('click', function(){ switchTab('devicecam'); });
+
+  // ---- ESP32-CAM ----
+  var espStreamActive = false;
+  var espStreamTimer = null;
+
+  function esp32Check(){
+    espInfo.textContent = '🔄 Mencari ESP32-CAM via Firebase...';
+    espNoCam.style.display = 'none';
+    espLive.style.display = 'none';
+    esp32StopPolling(); // stop previous polling if any
+
+    esp32StartPolling(function(err){
+      if(err){
+        espInfo.textContent = '⏳ Menunggu ESP32-CAM...';
+        espStatus.innerHTML = '<span style="color:var(--c-text-muted)">🔴 Offline (tidak terdeteksi)</span>';
+        espNoCam.style.display = 'block';
+        espLive.style.display = 'none';
+        document.getElementById('vEspClassify').disabled = true;
+        return;
+      }
+      espInfo.textContent = '✅ ESP32-CAM ditemukan — IP: ' + ESP32.camIP;
+      espStatus.innerHTML = '<span style="color:var(--c-primary)">🟢 Online (' + ESP32.camIP + ')</span>';
+      espNoCam.style.display = 'none';
+      espLive.style.display = 'block';
+      document.getElementById('vEspClassify').disabled = false;
+      startEspStream();
+    }, 5000);
+  }
+
+  // Retry button
+  document.getElementById('vEspRetry').addEventListener('click', function(){
+    esp32StopPolling();
+    esp32Check();
   });
 
-  // Kamera
-  camBtn.addEventListener('click', function(){
-    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ alert('Kamera tidak didukung browser ini.'); return; }
-    navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}).then(function(s){
-      stream=s; video.srcObject=s; video.style.display='block'; capBtn.style.display='inline-flex';
-    }).catch(function(){ alert('Gagal mengakses kamera (perlu izin & HTTPS).'); });
-  });
-  capBtn.addEventListener('click', function(){
-    canvas.width=video.videoWidth||320; canvas.height=video.videoHeight||240;
-    canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
-    setPreview(canvas.toDataURL('image/jpeg')); stopCam();
-  });
+  function startEspStream(){
+    if(espStreamActive) return;
+    espStreamActive = true;
 
-  // Klasifikasi
-  runBtn.addEventListener('click', function(){
-    if(!VISION.previewEl){ return; }
-    var res=document.getElementById('vResult');
-    res.innerHTML='<p style="font-size:13px;color:var(--c-text-muted)">Memuat model & menganalisis...</p>';
-    runBtn.disabled=true;
-    visionLoad().then(function(){
-      document.getElementById('vModelNote').innerHTML = VISION.type==='custom' ? 'Model kustom JALARI (36 kelas) aktif.' : 'Mode demo: MobileNet ImageNet (CDN).';
-      return visionClassify(VISION.previewEl);
-    }).then(function(preds){
-      VISION.lastResult=preds; runBtn.disabled=false;
-      renderResult(preds);
-      var top=preds[0]; if(top){ compAdd(top.kategori); renderComp(); }
-    }).catch(function(err){
-      res.innerHTML='<p style="color:var(--c-danger);font-size:13px">Gagal: '+(err&&err.message||err)+'</p>'; runBtn.disabled=false;
+    // Gunakan single frame polling (MJPEG <img> di beberapa browser mobile kurang responsif)
+    function refreshFrame(){
+      if(!espStreamActive) return;
+      // Anti-cache timestamp
+      var url = ESP32.stillURL + '?_=' + Date.now();
+      espImg.src = url;
+    }
+
+    // Refresh setiap 800ms
+    refreshFrame();
+    espStreamTimer = setInterval(refreshFrame, 800);
+  }
+
+  function stopEspStream(){
+    espStreamActive = false;
+    if(espStreamTimer){ clearInterval(espStreamTimer); espStreamTimer = null; }
+  }
+
+  // ESP Capture → ambil snapshot dari ESP32-CAM
+  document.getElementById('vEspCapture').addEventListener('click', function(){
+    loadEspSnapshot(function(dataUrl){
+      setPreview(dataUrl);
     });
   });
 
+  // ESP Classify → capture dulu lalu klasifikasi
+  document.getElementById('vEspClassify').addEventListener('click', function(){
+    loadEspSnapshot(function(dataUrl){
+      setPreview(dataUrl);
+      // Auto-run classification
+      triggerClassification();
+    });
+  });
+
+  function loadEspSnapshot(callback){
+    var url = ESP32.captureURL + '?_=' + Date.now();
+    espInfo.textContent = '📸 Mengambil snapshot...';
+    fetch(url, {cache:'no-store'})
+      .then(function(r){
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        return r.blob();
+      })
+      .then(function(blob){
+        var reader = new FileReader();
+        reader.onload = function(e){
+          espInfo.textContent = '✅ Snapshot siap. Klik Klasifikasi.';
+          if(callback) callback(e.target.result);
+        };
+        reader.readAsDataURL(blob);
+      })
+      .catch(function(e){
+        espInfo.textContent = '❌ Gagal: ' + e.message;
+        console.error('[ESP32-CAM] Snapshot error:', e);
+      });
+  }
+
+  // ---- Upload ----
+  document.getElementById('vFile').addEventListener('change', function(e){
+    var f = e.target.files && e.target.files[0];
+    if(!f) return;
+    stopDeviceCam();
+    stopEspStream();
+    var rd = new FileReader();
+    rd.onload = function(ev){ setPreview(ev.target.result); };
+    rd.readAsDataURL(f);
+  });
+
+  // ---- Device Camera ----
+  var deviceStream = null;
+  var camStage     = document.getElementById('vStageCam');
+  var videoEl      = document.getElementById('vVideo');
+  var canvasEl     = document.getElementById('vCanvas');
+  var capBtn       = document.getElementById('vCapture');
+  var camBtn       = document.getElementById('vCamBtn');
+
+  function stopDeviceCam(){
+    if(deviceStream){
+      deviceStream.getTracks().forEach(function(t){ t.stop(); });
+      deviceStream = null;
+    }
+    videoEl.style.display = 'none';
+    capBtn.style.display  = 'none';
+  }
+
+  camBtn.addEventListener('click', function(){
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      alert('Kamera tidak didukung browser ini.');
+      return;
+    }
+    stopEspStream();
+    navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})
+      .then(function(s){
+        deviceStream = s;
+        videoEl.srcObject = s;
+        videoEl.style.display = 'block';
+        capBtn.style.display  = 'inline-flex';
+        camStage.innerHTML = '';
+      })
+      .catch(function(){
+        alert('Gagal akses kamera (izin & HTTPS).');
+      });
+  });
+
+  capBtn.addEventListener('click', function(){
+    canvasEl.width  = videoEl.videoWidth || 320;
+    canvasEl.height = videoEl.videoHeight || 240;
+    canvasEl.getContext('2d').drawImage(videoEl,0,0,canvasEl.width,canvasEl.height);
+    setPreview(canvasEl.toDataURL('image/jpeg'));
+    stopDeviceCam();
+  });
+
+  // ---- Classification trigger (reusable) ----
+  function triggerClassification(){
+    if(!VISION.previewEl){ return; }
+    resultDiv.innerHTML = '<p style="font-size:13px;color:var(--c-text-muted)">⏳ Memuat model & menganalisis...</p>';
+    runBtn.disabled = true;
+    visionLoad().then(function(){
+      document.getElementById('vModelNote').innerHTML = VISION.type==='custom'
+        ? 'Model kustom JALARI (36 kelas) aktif.'
+        : 'Mode demo: MobileNet ImageNet (CDN).';
+      return visionClassify(VISION.previewEl);
+    }).then(function(preds){
+      VISION.lastResult = preds;
+      runBtn.disabled = false;
+      renderResult(preds);
+      var top = preds[0];
+      if(top){ compAdd(top.kategori); renderComp(); }
+    }).catch(function(err){
+      resultDiv.innerHTML = '<p style="color:var(--c-danger);font-size:13px">Gagal: '+(err&&err.message||err)+'</p>';
+      runBtn.disabled = false;
+    });
+  }
+
+  // Run classification
+  runBtn.addEventListener('click', triggerClassification);
+
   // Reset komposisi
-  document.getElementById('vReset').addEventListener('click', function(){ compReset(); renderComp(); });
+  document.getElementById('vReset').addEventListener('click', function(){
+    compReset();
+    renderComp();
+  });
+
+  // ---- Start: check ESP32-CAM ----
+  esp32Check();
 
   renderComp();
+
+  // ---- Cleanup hook (called by main.js go() on page change) ----
+  VISION.stopAll = function(){
+    stopEspStream();
+    esp32StopPolling();
+    stopDeviceCam();
+  };
 }
 
 function renderResult(preds){
@@ -195,7 +477,7 @@ function renderResult(preds){
     '<span style="margin-left:auto;font-family:var(--font-mono);font-size:13px;color:var(--c-text-muted)">'+(top.prob*100).toFixed(1)+'%</span></div>';
   h+='<div class="xai-title" style="font-size:12px;color:var(--c-text-muted);margin-bottom:8px">Top-'+preds.length+' confidence (XAI):</div>';
   for(var i=0;i<preds.length;i++){ var p=preds[i], pct=(p.prob*100);
-    h+='<div class="xai-factor"><span style="width:130px;font-size:12px;color:var(--c-text-secondary);text-transform:capitalize">'+p.label+'</span>'+
+    h+='<div class="xai-factor"><span style="min-width:90px;flex:0 0 auto;font-size:12px;color:var(--c-text-secondary);text-transform:capitalize;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+p.label+'</span>'+
        '<div class="xai-bar"><div class="xai-bar-fill" style="width:'+pct.toFixed(0)+'%;background:'+catColor(p.kategori)+'"></div></div>'+
        '<span class="xai-pct">'+pct.toFixed(1)+'%</span></div>';
   }
@@ -204,7 +486,7 @@ function renderResult(preds){
 
 function renderComp(){
   var c=compGet(), total=compTotal(c);
-  var order=['buah','sayur','nasi','lauk','lainnya'];
+  var order=['buah','sayur','daging','tulang','lainnya'];
   var labels=[], data=[], colors=[];
   for(var i=0;i<order.length;i++){ labels.push(catLabel(order[i])); data.push(c[order[i]]||0); colors.push(catColor(order[i])); }
   // Donut (memakai factory & registry chart global dari main.js)

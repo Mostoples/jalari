@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>JALARI — Data Studio</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green:   #16a34a;
+      --green-d: #15803d;
+      --green-l: #dcfce7;
+      --blue:    #0284c7;
+      --amber:   #d97706;
+      --red:     #dc2626;
+      --purple:  #7c3aed;
+      --bg:      #0a0f0d;
+      --surface: #111a14;
+      --card:    #172018;
+      --border:  #1e3020;
+      --t1:      #e2ede6;
+      --t2:      #7a9a82;
+      --t3:      #4a6a52;
+      --font:    'Inter', system-ui, sans-serif;
+      --mono:    'JetBrains Mono', monospace;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--t1); font-family: var(--font); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+
+    /* ===== TOPBAR ===== */
+    .topbar {
+      height: 56px; display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-icon { width: 32px; height: 32px; background: var(--green); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: #fff; }
+    .brand-text { font-size: 15px; font-weight: 700; color: var(--t1); }
+    .brand-sub { font-size: 11px; color: var(--t3); margin-top: 1px; }
+    .conn-badge { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 20px; border: 1px solid; }
+    .conn-badge.connected { color: #4ade80; background: rgba(74,222,128,.08); border-color: rgba(74,222,128,.2); }
+    .conn-badge.disconnected { color: var(--t3); background: rgba(255,255,255,.04); border-color: var(--border); }
+    .conn-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .conn-badge.connected .conn-dot { background: #4ade80; animation: blink 1.4s infinite; }
+    .conn-badge.disconnected .conn-dot { background: var(--t3); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ===== LAYOUT ===== */
+    .page { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+    .grid { display: grid; grid-template-columns: 1fr 340px; gap: 20px; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+    /* ===== CARD ===== */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .card-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .card-title { font-size: 13.5px; font-weight: 700; color: var(--t1); }
+    .card-body { padding: 20px; }
+
+    /* ===== SLIDERS ===== */
+    .sensor-row { margin-bottom: 20px; }
+    .sensor-row:last-child { margin-bottom: 0; }
+    .sensor-label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .sensor-name { font-size: 12.5px; font-weight: 600; color: var(--t2); text-transform: uppercase; letter-spacing: .5px; }
+    .sensor-val-wrap { display: flex; align-items: center; gap: 8px; }
+    .sensor-num { font-family: var(--mono); font-size: 16px; font-weight: 700; color: var(--t1); min-width: 60px; text-align: right; }
+    .sensor-unit { font-size: 11px; color: var(--t3); }
+    input[type=range] {
+      width: 100%; -webkit-appearance: none; height: 6px; border-radius: 3px;
+      background: var(--border); outline: none; cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+      background: var(--green); cursor: pointer; border: 2px solid var(--bg);
+      box-shadow: 0 0 0 2px rgba(22,163,74,.3);
+    }
+    input[type=range]:hover::-webkit-slider-thumb { background: var(--green-d); }
+    input[type=number] {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--t1); font-family: var(--mono); font-size: 13px; font-weight: 700;
+      padding: 4px 8px; width: 72px; text-align: right; outline: none;
+    }
+    input[type=number]:focus { border-color: var(--green); }
+
+    /* Sensor color accents */
+    .s-organic   input[type=range]::-webkit-slider-thumb { background: var(--green); }
+    .s-inorganic input[type=range]::-webkit-slider-thumb { background: var(--blue); }
+    .s-temp      input[type=range]::-webkit-slider-thumb { background: var(--red); }
+    .s-ph        input[type=range]::-webkit-slider-thumb { background: var(--amber); }
+    .s-mq4       input[type=range]::-webkit-slider-thumb { background: var(--purple); }
+    .s-hum       input[type=range]::-webkit-slider-thumb { background: #0d9488; }
+    .s-voc       input[type=range]::-webkit-slider-thumb { background: #e11d48; }
+
+    .track-fill {
+      position: relative;
+    }
+    .sensor-minmax { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--t3); margin-top: 3px; font-family: var(--mono); }
+
+    /* ===== AUTO SEND ===== */
+    .auto-section { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .toggle-wrap { display: flex; align-items: center; gap: 8px; }
+    .toggle { width: 44px; height: 24px; background: var(--border); border-radius: 12px; cursor: pointer; position: relative; transition: background .2s; flex-shrink: 0; border: none; }
+    .toggle::after { content:''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--t3); transition: left .2s, background .2s; }
+    .toggle.on { background: rgba(22,163,74,.25); }
+    .toggle.on::after { left: 23px; background: var(--green); }
+    .toggle-label { font-size: 13px; font-weight: 500; color: var(--t2); }
+    .interval-wrap { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--t2); }
+    select {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--t1); font-size: 12.5px; padding: 4px 8px; outline: none; cursor: pointer;
+    }
+    select:focus { border-color: var(--green); }
+
+    /* ===== BUTTONS ===== */
+    .btn-send {
+      display: flex; align-items: center; gap: 8px; justify-content: center;
+      width: 100%; padding: 13px; border-radius: 10px; border: none; cursor: pointer;
+      font-family: var(--font); font-size: 14px; font-weight: 700; letter-spacing: .3px;
+      background: var(--green); color: #fff; transition: background .15s, transform .1s;
+      margin-top: 16px;
+    }
+    .btn-send:hover { background: var(--green-d); }
+    .btn-send:active { transform: scale(.98); }
+    .btn-send:disabled { background: var(--t3); cursor: not-allowed; transform: none; }
+    .btn-randomize {
+      width: 100%; padding: 9px; border-radius: 8px; border: 1px solid var(--border);
+      background: none; color: var(--t2); font-family: var(--font); font-size: 13px;
+      font-weight: 600; cursor: pointer; transition: background .15s, color .15s; margin-top: 8px;
+    }
+    .btn-randomize:hover { background: var(--border); color: var(--t1); }
+
+    /* ===== PREVIEW CARD ===== */
+    .preview-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .preview-row:last-child { border-bottom: none; }
+    .preview-label { font-size: 12px; color: var(--t2); }
+    .preview-val { font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--t1); }
+
+    .fill-bar-wrap { margin: 4px 0 2px; }
+    .fill-bar { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .fill-bar-fill { height: 100%; border-radius: 3px; transition: width .3s; }
+    .fill-bar-fill.organic { background: var(--green); }
+    .fill-bar-fill.inorganic { background: var(--blue); }
+
+    /* ===== LOG ===== */
+    .log-list { list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+    .log-list::-webkit-scrollbar { width: 4px; }
+    .log-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .log-item { font-size: 12px; color: var(--t2); display: flex; gap: 8px; align-items: flex-start; }
+    .log-time { font-family: var(--mono); color: var(--t3); flex-shrink: 0; }
+    .log-msg.ok { color: #4ade80; }
+    .log-msg.err { color: #f87171; }
+    .log-empty { font-size: 12px; color: var(--t3); font-style: italic; }
+
+    /* ===== SENSOR STATUS ===== */
+    .sensor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .s-mini { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .s-mini-label { font-size: 10.5px; color: var(--t3); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; margin-bottom: 3px; }
+    .s-mini-val { font-family: var(--mono); font-size: 18px; font-weight: 700; }
+
+    /* ===== SECTION TITLE ===== */
+    .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--t3); margin-bottom: 16px; }
+
+    /* ===== DANGER ZONE ===== */
+    .tag-info { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; background: rgba(22,163,74,.12); color: #4ade80; }
+
+    /* ===== PAGE HEADER ===== */
+    .page-head { margin-bottom: 28px; }
+    .page-head h1 { font-size: 22px; font-weight: 700; color: var(--t1); margin-bottom: 4px; }
+    .page-head p { font-size: 13px; color: var(--t2); }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-icon">J</div>
+    <div>
+      <div class="brand-text">JALARI Data Studio</div>
+      <div class="brand-sub">Realtime Database Interface</div>
+    </div>
+  </div>
+  <div class="conn-badge disconnected" id="connBadge">
+    <div class="conn-dot"></div>
+    <span id="connText">Menghubungkan...</span>
+  </div>
+</header>
+
+<div class="page">
+  <div class="page-head">
+    <h1>Kontrol Data Sensor</h1>
+    <p>Kirim data ke Firebase Realtime Database &rarr; ditampilkan real-time di dashboard JALARI</p>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT: SLIDERS -->
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head">
+          <span class="card-title">Sensor Values</span>
+          <span class="tag-info">jalari/sensors</span>
+        </div>
+        <div class="card-body">
+
+          <!-- Organik -->
+          <div class="sensor-row s-organic">
+            <div class="sensor-label">
+              <span class="sensor-name">Limbah Organik</span>
+              <div class="sensor-val-wrap">
+                <input type="number" id="v_organic" min="0" max="80" step="0.1" value="22.0">
+                <span class="sensor-unit">kg</span>
+              </div>
+            </div>
+            <input type="range" id="r_organic" min="0" max="80" step="0.1" value="22.0">
+            <div class="sensor-minmax"><span>0 kg</span><span>80 kg maks</span></div>
+          </div>
+
+          <!-- Anorganik -->
+          <div class="sensor-row s-inorganic">
+            <div class="sensor-label">
+              <span class="sensor-name">Limbah Anorganik</span>
+              <div class="sensor-val-wrap">
+                <input type="number" id="v_inorganic" min="0" max="30" step="0.1" value="8.5">
+                <span class="sensor-unit">kg</span>
+              </div>
+            </div>
+            <input type="range" id="r_inorganic" min="0" max="30" step="0.1" value="8.5">
+            <div class="sensor-minmax"><span>0 kg</span><span>30 kg maks</span></div>
+          </div>
+
+          <!-- Suhu -->
+          <div class="sensor-row s-temp">
+            <div class="sensor-label">
+              <span class="sensor-name">Suhu (DS18B20)</span>
+              <div class="sensor-val-wrap">
+                <input type="number" id="v_temp" min="20" max="70" step="0.1" value="36.5">
+                <span class="sensor-unit">°C</span>
+              </div>
+            </div>
+            <input type="range" id="r_temp" min="20" max="70" step="0.1" value="36.5">
+            <div class="sensor-minmax"><span>20°C</span><span>70°C</span></div>
+          </div>
+
+          <!-- pH -->
+          <div class="sensor-row s-ph">
+            <div class="sensor-label">
+              <span class="sensor-name">pH Sensor</span>
+              <div class="sensor-val-wrap">
+                <input type="number" id="v_ph" min="4" max="9" step="0.1" value="6.8">
+                <span class="sensor-unit">pH</span>
+              </div>
+            </div>
+            <input type="range" id="r_ph" min="4" max="9" step="0.1" value="6.8">
+            <div class="sensor-minmax"><span>4.0</span><span>9.0</span></div>
+          </div>
+
+          <!-- MQ-4 -->
+          <div class="sensor-row s-mq4">
+            <div class="sensor-label">
+              <span class="sensor-name">Gas MQ-4 (CH₄)</span>
+              <div class="sensor-val-wrap">
+                <input type="number" id="v_mq4" min="0" max="2" step="0.01" value="0.28">
+                <span class="sensor-unit">%</span>
+              </div>
+            </div>
+            <input type="range" id="r_mq4" min="0" max="2" step="0.01" value="0.28">
+            <div class="sensor-minmax"><span>0%</span><span>2%</span></div>
+          </div>
+
+          <!-- Kelembapan -->
+          <div class="sensor-row s-hum">
+            <div class="sensor-label">
+              <span class="sensor-name">Kelembapan (DHT22)</span>
+              <div class="sensor-val-wrap">
+                <input type="number" id="v_humidity" min="30" max="95" step="1" value="62">
+                <span class="sensor-unit">%</span>
+              </div>
+            </div>
+            <input type="range" id="r_humidity" min="30" max="95" step="1" value="62">
+            <div class="sensor-minmax"><span>30%</span><span>95%</span></div>
+          </div>
+
+          <!-- VOC -->
+          <div class="sensor-row s-voc">
+            <div class="sensor-label">
+              <span class="sensor-name">VOC (MQ-135)</span>
+              <div class="sensor-val-wrap">
+                <input type="number" id="v_voc" min="0" max="200" step="1" value="45">
+                <span class="sensor-unit">ppm</span>
+              </div>
+            </div>
+            <input type="range" id="r_voc" min="0" max="200" step="1" value="45">
+            <div class="sensor-minmax"><span>0 ppm</span><span>200 ppm</span></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- AUTO SEND -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">Kirim Data</span>
+        </div>
+        <div class="card-body">
+          <div class="auto-section">
+            <div class="toggle-wrap">
+              <button class="toggle" id="autoToggle" aria-label="Auto send"></button>
+              <span class="toggle-label">Auto-kirim</span>
+            </div>
+            <div class="interval-wrap">
+              Interval:
+              <select id="intervalSel">
+                <option value="2000">2 detik</option>
+                <option value="5000" selected>5 detik</option>
+                <option value="10000">10 detik</option>
+                <option value="30000">30 detik</option>
+              </select>
+            </div>
+          </div>
+
+          <button class="btn-send" id="btnSend">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Kirim ke Firebase
+          </button>
+          <button class="btn-randomize" id="btnRandom">
+            ⚡ Acak Nilai (Simulasi Fluktuasi)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: PREVIEW + LOG -->
+    <div>
+      <!-- Preview -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head">
+          <span class="card-title">Preview Kalkulasi</span>
+        </div>
+        <div class="card-body">
+          <div style="margin-bottom:14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:12px;color:var(--t2)">Organik</span>
+              <span id="pOrgPct" style="font-size:12px;color:var(--t3);font-family:var(--mono)">28%</span>
+            </div>
+            <div class="fill-bar"><div class="fill-bar-fill organic" id="pOrgBar" style="width:28%"></div></div>
+          </div>
+          <div style="margin-bottom:14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:12px;color:var(--t2)">Anorganik</span>
+              <span id="pInoPct" style="font-size:12px;color:var(--t3);font-family:var(--mono)">28%</span>
+            </div>
+            <div class="fill-bar"><div class="fill-bar-fill inorganic" id="pInoBar" style="width:28%"></div></div>
+          </div>
+
+          <div class="preview-row">
+            <span class="preview-label">Potensi Biogas</span>
+            <span class="preview-val" id="pBio" style="color:#7c3aed">–</span>
+          </div>
+          <div class="preview-row">
+            <span class="preview-label">Energi Listrik</span>
+            <span class="preview-val" id="pEn" style="color:#d97706">–</span>
+          </div>
+          <div class="preview-row">
+            <span class="preview-label">Potensi Kompos</span>
+            <span class="preview-val" id="pCo" style="color:#16a34a">–</span>
+          </div>
+          <div class="preview-row">
+            <span class="preview-label">Kerugian / Hari</span>
+            <span class="preview-val" id="pLoss" style="color:#dc2626">–</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sensor mini grid -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head"><span class="card-title">Status Saat Ini</span></div>
+        <div class="card-body">
+          <div class="sensor-grid">
+            <div class="s-mini">
+              <div class="s-mini-label">Suhu</div>
+              <div class="s-mini-val" id="mTemp" style="color:#dc2626">–</div>
+            </div>
+            <div class="s-mini">
+              <div class="s-mini-label">pH</div>
+              <div class="s-mini-val" id="mPh" style="color:#d97706">–</div>
+            </div>
+            <div class="s-mini">
+              <div class="s-mini-label">Gas MQ-4</div>
+              <div class="s-mini-val" id="mMq4" style="color:#7c3aed">–</div>
+            </div>
+            <div class="s-mini">
+              <div class="s-mini-label">Kelembapan</div>
+              <div class="s-mini-val" id="mHum" style="color:#0d9488">–</div>
+            </div>
+            <div class="s-mini" style="grid-column:1/-1">
+              <div class="s-mini-label">VOC</div>
+              <div class="s-mini-val" id="mVoc" style="color:#e11d48">–</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">Log Kiriman</span>
+          <button class="btn-randomize" style="width:auto;padding:4px 10px;font-size:11.5px;margin:0" id="btnClearLog">Hapus</button>
+        </div>
+        <div class="card-body">
+          <ul class="log-list" id="logList">
+            <li class="log-empty">Belum ada kiriman.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+'use strict';
+
+/* ===== CONSTANTS ===== */
+var BIOGAS = 0.149, ENERGY = 5.5, COMPOST = 0.30, COMPOST_P = 2000;
+var ELEC_P = 1444, CO2_F = 0.58, CO2_FI = 0.90, CO2_C = 80;
+var PLAST_P = 800, PAPER_P = 1200, OTH_P = 300;
+var PLAST_R = 0.40, PAPER_R = 0.35, OTH_R = 0.25;
+var ORG_MAX = 80, INO_MAX = 30;
+
+/* ===== FIREBASE ===== */
+var db = null;
+var autoTimer = null;
+var isAuto = false;
+
+firebase.initializeApp({
+  apiKey: 'AIzaSyCq5HhlHYpGKZfKaOCXRhuC3K0K8MKwaO4',
+  authDomain: 'jalari-eac18.firebaseapp.com',
+  databaseURL: 'https://jalari-eac18-default-rtdb.asia-southeast1.firebasedatabase.app',
+  projectId: 'jalari-eac18',
+  storageBucket: 'jalari-eac18.firebasestorage.app',
+  messagingSenderId: '830358463963',
+  appId: '1:830358463963:web:e16533fed20b255182b3fe'
+});
+db = firebase.database();
+
+/* Connection state */
+firebase.database().ref('.info/connected').on('value', function(snap){
+  var b = document.getElementById('connBadge');
+  var t = document.getElementById('connText');
+  if(snap.val() === true){
+    b.className = 'conn-badge connected';
+    t.textContent = 'Firebase Terhubung';
+  } else {
+    b.className = 'conn-badge disconnected';
+    t.textContent = 'Offline';
+  }
+});
+
+/* ===== DOM REFS ===== */
+var sensors = ['organic','inorganic','temp','ph','mq4','humidity','voc'];
+
+/* ===== SYNC SLIDER ↔ NUMBER INPUT ===== */
+sensors.forEach(function(key){
+  var r = document.getElementById('r_'+key);
+  var v = document.getElementById('v_'+key);
+  if(!r || !v) return;
+  r.addEventListener('input', function(){
+    v.value = parseFloat(r.value).toFixed(r.step.includes('.') ? r.step.split('.')[1].length : 0);
+    updatePreview();
+  });
+  v.addEventListener('input', function(){
+    var val = parseFloat(v.value);
+    if(isNaN(val)) return;
+    val = Math.max(parseFloat(r.min), Math.min(parseFloat(r.max), val));
+    r.value = val;
+    updatePreview();
+  });
+});
+
+/* ===== CALCULATIONS ===== */
+function calcEconOrg(org){ return org*COMPOST*COMPOST_P + org*BIOGAS*ENERGY*ELEC_P + org*CO2_F*CO2_C; }
+function calcEconIno(ino){ return ino*(PLAST_R*PLAST_P + PAPER_R*PAPER_P + OTH_R*OTH_P); }
+function calcLoss(org,ino){ return calcEconOrg(org) + calcEconIno(ino) + org*CO2_F*150 + ino*CO2_FI*150; }
+function fmtIDR(n){ return 'Rp ' + Math.round(n).toLocaleString('id-ID'); }
+
+function updatePreview(){
+  var org = parseFloat(document.getElementById('v_organic').value) || 0;
+  var ino = parseFloat(document.getElementById('v_inorganic').value) || 0;
+  var temp = parseFloat(document.getElementById('v_temp').value) || 0;
+  var ph   = parseFloat(document.getElementById('v_ph').value) || 0;
+  var mq4  = parseFloat(document.getElementById('v_mq4').value) || 0;
+  var hum  = parseFloat(document.getElementById('v_humidity').value) || 0;
+  var voc  = parseFloat(document.getElementById('v_voc').value) || 0;
+
+  var ulOrg = Math.min(100, Math.round(org/ORG_MAX*100));
+  var ulIno = Math.min(100, Math.round(ino/INO_MAX*100));
+  var bg = org * BIOGAS;
+  var en = bg * ENERGY;
+  var co = org * COMPOST;
+  var loss = calcLoss(org, ino);
+
+  /* bars */
+  var ob = document.getElementById('pOrgBar'), ib = document.getElementById('pInoBar');
+  if(ob){ ob.style.width=ulOrg+'%'; ob.style.background = ulOrg>=95?'#dc2626':ulOrg>=80?'#d97706':'#16a34a'; }
+  if(ib){ ib.style.width=ulIno+'%'; ib.style.background = ulIno>=95?'#dc2626':ulIno>=80?'#d97706':'#0284c7'; }
+  var op=document.getElementById('pOrgPct'),ip=document.getElementById('pInoPct');
+  if(op) op.textContent = ulOrg+'%';
+  if(ip) ip.textContent = ulIno+'%';
+
+  /* calcs */
+  el('pBio').textContent  = bg.toFixed(3) + ' m³';
+  el('pEn').textContent   = en.toFixed(2) + ' kWh';
+  el('pCo').textContent   = co.toFixed(2) + ' kg';
+  el('pLoss').textContent = fmtIDR(loss);
+
+  /* mini status */
+  el('mTemp').textContent = temp.toFixed(1) + ' °C';
+  el('mPh').textContent   = ph.toFixed(1);
+  el('mMq4').textContent  = mq4.toFixed(2) + ' %';
+  el('mHum').textContent  = hum.toFixed(0) + ' %';
+  el('mVoc').textContent  = voc.toFixed(0) + ' ppm';
+}
+
+function el(id){ return document.getElementById(id); }
+
+/* ===== SEND TO FIREBASE ===== */
+function sendData(silent){
+  var org  = parseFloat(el('v_organic').value)   || 0;
+  var ino  = parseFloat(el('v_inorganic').value)  || 0;
+  var temp = parseFloat(el('v_temp').value)       || 0;
+  var ph   = parseFloat(el('v_ph').value)         || 0;
+  var mq4  = parseFloat(el('v_mq4').value)        || 0;
+  var hum  = parseFloat(el('v_humidity').value)   || 0;
+  var voc  = parseFloat(el('v_voc').value)        || 0;
+
+  var payload = {
+    organic:   +org.toFixed(2),
+    inorganic: +ino.toFixed(2),
+    temp:      +temp.toFixed(1),
+    ph:        +ph.toFixed(1),
+    mq4:       +mq4.toFixed(2),
+    humidity:  +hum.toFixed(0)*1,
+    voc:       +voc.toFixed(0)*1,
+    timestamp: firebase.database.ServerValue.TIMESTAMP
+  };
+
+  var btn = el('btnSend');
+  if(btn) btn.disabled = true;
+
+  db.ref('jalari/sensors').set(payload)
+    .then(function(){
+      addLog('Data terkirim — Org: '+org.toFixed(1)+'kg, Ino: '+ino.toFixed(1)+'kg', 'ok');
+      if(btn) btn.disabled = false;
+    })
+    .catch(function(err){
+      addLog('Error: '+err.message, 'err');
+      if(btn) btn.disabled = false;
+    });
+}
+
+/* ===== LOG ===== */
+function addLog(msg, type){
+  var list = el('logList');
+  var empty = list.querySelector('.log-empty');
+  if(empty) list.removeChild(empty);
+
+  var now = new Date();
+  var t = pad(now.getHours())+':'+pad(now.getMinutes())+':'+pad(now.getSeconds());
+  var li = document.createElement('li');
+  li.className = 'log-item';
+  li.innerHTML = '<span class="log-time">'+t+'</span><span class="log-msg '+(type||'')+'">'+msg+'</span>';
+  list.insertBefore(li, list.firstChild);
+
+  /* keep max 30 entries */
+  while(list.children.length > 30) list.removeChild(list.lastChild);
+}
+
+function pad(n){ return n < 10 ? '0'+n : ''+n; }
+
+/* ===== RANDOMIZE ===== */
+function randomize(){
+  var org  = +(3 + Math.random()*60).toFixed(1);
+  var ino  = +(0.5 + Math.random()*22).toFixed(1);
+  var temp = +(32 + Math.random()*20).toFixed(1);
+  var ph   = +(5.5 + Math.random()*2.5).toFixed(1);
+  var mq4  = +(0.05 + Math.random()*0.8).toFixed(2);
+  var hum  = +(50 + Math.random()*30).toFixed(0)*1;
+  var voc  = +(15 + Math.random()*70).toFixed(0)*1;
+
+  setVal('organic',  org);
+  setVal('inorganic',ino);
+  setVal('temp',     temp);
+  setVal('ph',       ph);
+  setVal('mq4',      mq4);
+  setVal('humidity', hum);
+  setVal('voc',      voc);
+  updatePreview();
+}
+
+function setVal(key, val){
+  var r = el('r_'+key), v = el('v_'+key);
+  if(r) r.value = val;
+  if(v) v.value = val;
+}
+
+/* ===== AUTO SEND ===== */
+var autoToggle = el('autoToggle');
+autoToggle.addEventListener('click', function(){
+  isAuto = !isAuto;
+  autoToggle.className = isAuto ? 'toggle on' : 'toggle';
+  if(isAuto){
+    var ms = parseInt(el('intervalSel').value) || 5000;
+    addLog('Auto-kirim dimulai, interval '+ms/1000+'s', 'ok');
+    sendData();
+    autoTimer = setInterval(function(){
+      randomize();
+      sendData(true);
+    }, ms);
+  } else {
+    clearInterval(autoTimer);
+    addLog('Auto-kirim dihentikan', null);
+  }
+});
+
+el('intervalSel').addEventListener('change', function(){
+  if(isAuto){
+    clearInterval(autoTimer);
+    var ms = parseInt(this.value) || 5000;
+    autoTimer = setInterval(function(){
+      randomize();
+      sendData(true);
+    }, ms);
+    addLog('Interval diubah ke '+ms/1000+'s', null);
+  }
+});
+
+/* ===== EVENT LISTENERS ===== */
+el('btnSend').addEventListener('click', function(){ sendData(); });
+el('btnRandom').addEventListener('click', function(){ randomize(); });
+el('btnClearLog').addEventListener('click', function(){
+  el('logList').innerHTML = '<li class="log-empty">Belum ada kiriman.</li>';
+});
+
+/* ===== INIT ===== */
+updatePreview();
+</script>
+</body>
+</html>

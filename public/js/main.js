@@ -5,6 +5,61 @@
    ===================================================================== */
 'use strict';
 
+/* ============ FIREBASE REALTIME DATABASE ============ */
+var FB_ONLINE = false;
+var FB_DB = null;
+
+function initFirebase(){
+  try{
+    if(typeof firebase==='undefined')return;
+    if(!firebase.apps.length){
+      firebase.initializeApp({
+        apiKey:'AIzaSyCq5HhlHYpGKZfKaOCXRhuC3K0K8MKwaO4',
+        authDomain:'jalari-eac18.firebaseapp.com',
+        databaseURL:'https://jalari-eac18-default-rtdb.asia-southeast1.firebasedatabase.app',
+        projectId:'jalari-eac18',
+        storageBucket:'jalari-eac18.firebasestorage.app',
+        messagingSenderId:'830358463963',
+        appId:'1:830358463963:web:e16533fed20b255182b3fe'
+      });
+    }
+    FB_DB=firebase.database();
+    FB_DB.ref('jalari/sensors').on('value',function(snap){
+      var d=snap.val();if(!d)return;
+      if(typeof d.organic==='number')   S.organic   =+parseFloat(d.organic).toFixed(2);
+      if(typeof d.inorganic==='number') S.inorganic =+parseFloat(d.inorganic).toFixed(2);
+      if(typeof d.ph==='number')        S.ph        =+parseFloat(d.ph).toFixed(1);
+      if(typeof d.temp==='number')      S.temp      =+parseFloat(d.temp).toFixed(1);
+      if(typeof d.mq4==='number')       S.mq4       =+parseFloat(d.mq4).toFixed(2);
+      if(typeof d.humidity==='number')  S.humidity  =+parseFloat(d.humidity).toFixed(0);
+      if(typeof d.voc==='number')       S.voc       =+parseFloat(d.voc).toFixed(0);
+      S.ulOrg=Math.round(S.organic/ORGANIC_MAX*100);
+      S.ulIno=Math.round(S.inorganic/INORGANIC_MAX*100);
+      S.online=true; S.lastUpdate=new Date();
+      if(!FB_ONLINE){FB_ONLINE=true;updateFbBadge();}
+      try{
+        if(curPage==='home')updateHome();
+        if(curPage==='measurement')updateMeasLive();
+        checkAlerts();
+      }catch(e){}
+    },function(err){
+      console.warn('Firebase read error:',err);
+      FB_ONLINE=false; updateFbBadge();
+    });
+  }catch(e){console.warn('Firebase init:',e);}
+}
+
+function updateFbBadge(){
+  var b=document.getElementById('simBadge');if(!b)return;
+  if(FB_ONLINE){
+    b.innerHTML='<span class="sim-dot" style="background:#4ade80"></span>Firebase Live';
+    b.style.cssText='color:#4ade80;background:rgba(74,222,128,.1);border-color:rgba(74,222,128,.25);display:flex;align-items:center;gap:6px;font-size:11.5px;border:1px solid;border-radius:20px;padding:5px 10px;';
+  }else{
+    b.innerHTML='<span class="sim-dot"></span>Simulator Mode';
+    b.style.cssText='';
+  }
+}
+
 /* ============ SECTION 1: KONSTANTA ILMIAH ============ */
 var BIOGAS_SIMPLE=0.50, TS_RATIO=0.25, VS_TS=0.85, BMP_VS=0.42, CH4_FRAC=0.60;
 var BIOGAS_REFINED=TS_RATIO*VS_TS*BMP_VS/CH4_FRAC; // ~0.149
@@ -96,7 +151,7 @@ function mkDoughnut(id,labels,data,colors){var el=document.getElementById(id);if
 var PAGES={home:'Beranda',device:'Device',measurement:'Pengukuran',sensors:'Sensor',analytics:'AI & Energi',vision:'Visi AI',history:'Riwayat',reports:'Laporan',sppg:'Manajemen SPPG',settings:'Pengaturan'};
 var curPage='home';
 function route(){var h=(location.hash||'').replace(/^#\/?/,'')||'home';if(!PAGES[h])h='home';go(h);}
-function go(page){try{curPage=page;killCharts();var items=document.querySelectorAll('.nav-item');for(var i=0;i<items.length;i++){if(items[i].getAttribute('data-page')===page)items[i].classList.add('active');else items[i].classList.remove('active');}var bc=document.getElementById('topbarBreadcrumb');if(bc){var sp=bc.querySelectorAll('span');sp[sp.length-1].textContent=PAGES[page];}var fn={home:pgHome,device:pgDevice,measurement:pgMeasure,sensors:pgSensors,analytics:pgAnalytics,vision:(typeof pgVision==='function'?pgVision:pgHome),history:pgHistory,reports:pgReports,sppg:pgSppg,settings:pgSettings};(fn[page]||pgHome)(document.getElementById('pageContent'));}catch(e){console.error('Route:',e);document.getElementById('pageContent').innerHTML='<div style="padding:40px;color:red"><h2>Error</h2><pre>'+e.message+'</pre></div>';}}
+function go(page){try{curPage=page;killCharts();if(typeof VISION!=='undefined' && VISION.stopAll) VISION.stopAll();var items=document.querySelectorAll('.nav-item');for(var i=0;i<items.length;i++){if(items[i].getAttribute('data-page')===page)items[i].classList.add('active');else items[i].classList.remove('active');}var mobs=document.querySelectorAll('.mob-link[data-page]');for(var j=0;j<mobs.length;j++){if(mobs[j].getAttribute('data-page')===page)mobs[j].classList.add('active');else mobs[j].classList.remove('active');}var bc=document.getElementById('topbarBreadcrumb');if(bc){var sp=bc.querySelectorAll('span');sp[sp.length-1].textContent=PAGES[page];}var fn={home:pgHome,device:pgDevice,measurement:pgMeasure,sensors:pgSensors,analytics:pgAnalytics,vision:(typeof pgVision==='function'?pgVision:pgHome),history:pgHistory,reports:pgReports,sppg:pgSppg,settings:pgSettings};(fn[page]||pgHome)(document.getElementById('pageContent'));}catch(e){console.error('Route:',e);document.getElementById('pageContent').innerHTML='<div style="padding:40px;color:red"><h2>Error</h2><pre>'+e.message+'</pre></div>';}}
 
 /* ============ SECTION 8: INIT ============ */
 document.addEventListener('DOMContentLoaded',function(){
@@ -104,14 +159,14 @@ document.addEventListener('DOMContentLoaded',function(){
     var th=localStorage.getItem('jalari_theme')||'light';
     document.documentElement.setAttribute('data-theme',th);
     document.getElementById('themeToggle').addEventListener('click',function(){var c=document.documentElement.getAttribute('data-theme'),n=c==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',n);localStorage.setItem('jalari_theme',n);});
-    initSidebar();startClock();
+    initSidebar();startClock();initFirebase();
     // Check onboarding
     if(!localStorage.getItem('jalari_onboarded')){showOnboarding();}
     else{window.addEventListener('hashchange',route);route();}
     setTimeout(function(){S.online=true;simTick();setInterval(simTick,5000);},1000);
   }catch(e){console.error('Init:',e);document.getElementById('pageContent').innerHTML='<div style="padding:40px;color:red"><h2>Init Error</h2><pre>'+e.message+'</pre></div>';}
 });
-function initSidebar(){var sb=document.getElementById('sidebar'),mb=document.getElementById('menuBtn'),tb=document.getElementById('sidebarToggle'),mw=document.getElementById('mainWrapper');var ov=document.createElement('div');ov.className='sidebar-overlay';document.body.appendChild(ov);function close(){sb.classList.remove('mobile-open');ov.classList.remove('active');}mb.addEventListener('click',function(){sb.classList.add('mobile-open');ov.classList.add('active');});tb.addEventListener('click',function(){if(window.innerWidth>768){sb.classList.toggle('hidden');mw.classList.toggle('sidebar-collapsed');}else close();});ov.addEventListener('click',close);var navs=document.querySelectorAll('.nav-item');for(var i=0;i<navs.length;i++)navs[i].addEventListener('click',function(){if(window.innerWidth<=768)close();});document.getElementById('alertBannerClose').addEventListener('click',function(){document.getElementById('alertBanner').style.display='none';});}
+function initSidebar(){var sb=document.getElementById('sidebar'),mb=document.getElementById('menuBtn'),tb=document.getElementById('sidebarToggle'),mw=document.getElementById('mainWrapper');var ov=document.createElement('div');ov.className='sidebar-overlay';document.body.appendChild(ov);function close(){sb.classList.remove('mobile-open');ov.classList.remove('active');}function open(){sb.classList.add('mobile-open');ov.classList.add('active');}mb.addEventListener('click',open);var mn=document.getElementById('mobileNavMore');if(mn)mn.addEventListener('click',open);tb.addEventListener('click',function(){if(window.innerWidth>768){sb.classList.toggle('hidden');mw.classList.toggle('sidebar-collapsed');}else close();});ov.addEventListener('click',close);var navs=document.querySelectorAll('.nav-item');for(var i=0;i<navs.length;i++)navs[i].addEventListener('click',function(){if(window.innerWidth<=768)close();});document.getElementById('alertBannerClose').addEventListener('click',function(){document.getElementById('alertBanner').style.display='none';});}
 function startClock(){var el=document.getElementById('topbarTime');function t(){el.textContent=timeStr();}t();setInterval(t,1000);}
 
 /* ============ SECTION 9: ONBOARDING ============ */
@@ -212,14 +267,20 @@ function renderObSorted(containerId,type){
 
 /* ============ SECTION 10: SIMULATOR ============ */
 var tickN=0;
-function simTick(){tickN++;var hr=new Date().getHours(),pk=(hr>=10&&hr<=14)?1.8:1.0;
-  S.organic+=(Math.random()-0.25)*0.7*pk;S.inorganic+=(Math.random()-0.3)*0.25*pk;
-  S.organic=Math.max(3,Math.min(ORGANIC_MAX,S.organic));S.inorganic=Math.max(0.5,Math.min(INORGANIC_MAX,S.inorganic));
-  S.ulOrg=Math.round(S.organic/ORGANIC_MAX*100);S.ulIno=Math.round(S.inorganic/INORGANIC_MAX*100);
-  S.ph=5.8+Math.random()*2;S.temp=32+Math.random()*15;S.mq4=0.1+Math.random()*0.5;
-  S.humidity=50+Math.random()*20+(S.organic/ORGANIC_MAX)*10;S.voc=20+Math.random()*40+(S.temp-30)*2;
-  S.humidity=Math.min(95,S.humidity);S.voc=Math.min(200,Math.max(0,S.voc));S.lastUpdate=new Date();
-  RL.labels.push(timeStr(S.lastUpdate));RL.org.push(+S.organic.toFixed(2));RL.ino.push(+S.inorganic.toFixed(2));
+function simTick(){
+  tickN++;
+  if(!FB_ONLINE){
+    // Hanya jalankan simulasi sensor jika Firebase tidak terhubung
+    var hr=new Date().getHours(),pk=(hr>=10&&hr<=14)?1.8:1.0;
+    S.organic+=(Math.random()-0.25)*0.7*pk;S.inorganic+=(Math.random()-0.3)*0.25*pk;
+    S.organic=Math.max(3,Math.min(ORGANIC_MAX,S.organic));S.inorganic=Math.max(0.5,Math.min(INORGANIC_MAX,S.inorganic));
+    S.ulOrg=Math.round(S.organic/ORGANIC_MAX*100);S.ulIno=Math.round(S.inorganic/INORGANIC_MAX*100);
+    S.ph=5.8+Math.random()*2;S.temp=32+Math.random()*15;S.mq4=0.1+Math.random()*0.5;
+    S.humidity=50+Math.random()*20+(S.organic/ORGANIC_MAX)*10;S.voc=20+Math.random()*40+(S.temp-30)*2;
+    S.humidity=Math.min(95,S.humidity);S.voc=Math.min(200,Math.max(0,S.voc));S.lastUpdate=new Date();
+  }
+  // Selalu push ke rolling chart (menggunakan nilai S saat ini, dari Firebase atau simulator)
+  RL.labels.push(timeStr(S.lastUpdate||new Date()));RL.org.push(+S.organic.toFixed(2));RL.ino.push(+S.inorganic.toFixed(2));
   if(RL.labels.length>CHART_PTS){RL.labels.shift();RL.org.shift();RL.ino.shift();}
   try{if(curPage==='home')updateHome();if(curPage==='measurement')updateMeasLive();checkAlerts();}catch(e){console.error('tick:',e);}
 }
@@ -291,7 +352,8 @@ function updateHome(){
   document.getElementById('eCom').textContent=(S.organic*COMPOST_RATIO).toFixed(1)+' kg';
   document.getElementById('eLoss').textContent=fmtIDR(loss);
   var p1=document.getElementById('p_vOrg'),p2=document.getElementById('p_vIno');
-  if(p1){p1.style.width=Math.min(100,S.ulOrg)+'%';}if(p2){p2.style.width=Math.min(100,S.ulIno)+'%';}
+  if(p1){p1.style.width=Math.min(100,S.ulOrg)+'%';p1.style.background=S.ulOrg>=95?'var(--c-danger)':S.ulOrg>=80?'var(--c-accent)':'';}
+  if(p2){p2.style.width=Math.min(100,S.ulIno)+'%';p2.style.background=S.ulIno>=95?'var(--c-danger)':S.ulIno>=80?'var(--c-accent)':'';}
   var pt1=document.getElementById('pt_vOrg'),pt2=document.getElementById('pt_vIno');if(pt1)pt1.textContent=S.ulOrg+'%';if(pt2)pt2.textContent=S.ulIno+'%';
   if(charts.rt){charts.rt.data.labels=[].concat(RL.labels);charts.rt.data.datasets[0].data=[].concat(RL.org);charts.rt.data.datasets[1].data=[].concat(RL.ino);charts.rt.update('none');}
   if(charts.don){charts.don.data.datasets[0].data=[S.organic,S.inorganic];charts.don.update('none');}
@@ -335,14 +397,28 @@ function pgDevice(pc){var h='<div class="page-header"><div><h1 class="page-title
   h+='<div class="section-card"><div class="section-header"><div class="section-title">Sensor (7)</div></div><div class="section-body"><div class="device-grid">';for(var i=0;i<sensors.length;i++){var s=sensors[i];h+='<div class="device-item"><div class="device-name">'+s[0]+'</div><div class="device-desc">'+s[1]+'</div><div class="device-meta"><span>Range: '+s[2]+'</span><span>Pin: '+s[3]+'</span><span class="tag tag-green" style="margin-top:6px;width:fit-content">Online</span></div></div>';}h+='</div></div></div>';pc.innerHTML=h;}
 
 function pgMeasure(pc){var bg=S.organic*BIOGAS_REFINED,en=bg*ENERGY_PER_M3,co=S.organic*COMPOST_RATIO,loss=calcLoss(S.organic,S.inorganic);
-  pc.innerHTML=['<div class="page-header"><div><h1 class="page-title">Pengukuran</h1><p class="page-subtitle">Live weighing + rumus + protokol</p></div></div>',
-    '<div class="grid-2"><div class="section-card"><div class="section-header"><div class="section-title">Organik (Live)</div><span class="tag tag-green">Live</span></div><div class="section-body"><div class="weigh-display"><div class="weigh-value" id="wOrg">'+S.organic.toFixed(1)+'</div><div class="weigh-unit">kg</div></div></div></div>',
-    '<div class="section-card"><div class="section-header"><div class="section-title">Anorganik (Live)</div><span class="tag tag-blue">Live</span></div><div class="section-body"><div class="weigh-display"><div class="weigh-value" id="wIno" style="color:var(--c-secondary)">'+S.inorganic.toFixed(1)+'</div><div class="weigh-unit">kg</div></div></div></div></div>',
-    '<div class="section-card"><div class="section-header"><div class="section-title">Rumus & Kalkulasi</div></div><div class="section-body"><div class="formula-card">',
-    '<div class="formula-label">BMP Refined (D7)</div>V = '+S.organic.toFixed(1)+' \u00D7 0.149 = <strong>'+bg.toFixed(2)+' m\u00B3</strong> biogas<br>',
-    '<div class="formula-label">Energi (IEA)</div>E = '+bg.toFixed(2)+' \u00D7 5.5 = <strong>'+en.toFixed(1)+' kWh</strong><br>',
-    '<div class="formula-label">Kompos (G15)</div>K = '+S.organic.toFixed(1)+' \u00D7 0.30 = <strong>'+co.toFixed(1)+' kg</strong><br>',
-    '<div class="formula-label">Kerugian Ekonomi Total</div><strong style="color:var(--c-danger)">'+fmtIDR(loss)+'</strong> jika semua limbah dibuang ke TPA',
+  var srcTag=FB_ONLINE
+    ?'<span class="tag tag-green" style="font-size:11px">&#9679; Firebase Live</span>'
+    :'<span class="tag tag-amber" style="font-size:11px">&#9679; Simulator</span>';
+  var lastUpd=S.lastUpdate?timeStr(S.lastUpdate):'-';
+  pc.innerHTML=[
+    '<div class="page-header"><div><h1 class="page-title">Pengukuran</h1><p class="page-subtitle">Data sensor real-time</p></div>',
+    '<div style="display:flex;align-items:center;gap:8px">'+srcTag+'<span style="font-size:11.5px;color:var(--c-text-muted)">Update: <span id="measUpd">'+lastUpd+'</span></span></div></div>',
+    '<div class="grid-2">',
+    '<div class="section-card"><div class="section-header"><div class="section-title">Limbah Organik</div><span class="tag tag-green">Load Cell</span></div><div class="section-body"><div class="weigh-display"><div class="weigh-value" id="wOrg">'+S.organic.toFixed(1)+'</div><div class="weigh-unit">kg</div></div>',
+    '<div class="stat-progress-bar" style="margin-top:8px"><div class="stat-progress-fill" id="wOrgBar" style="width:'+S.ulOrg+'%'+(S.ulOrg>=95?';background:var(--c-danger)':S.ulOrg>=80?';background:var(--c-accent)':'')+'"></div></div>',
+    '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--c-text-muted);margin-top:4px"><span id="wOrgPct">'+S.ulOrg+'% kapasitas</span><span>maks '+ORGANIC_MAX+' kg</span></div>',
+    '</div></div>',
+    '<div class="section-card"><div class="section-header"><div class="section-title">Limbah Anorganik</div><span class="tag tag-blue">Load Cell</span></div><div class="section-body"><div class="weigh-display"><div class="weigh-value" id="wIno" style="color:var(--c-secondary)">'+S.inorganic.toFixed(1)+'</div><div class="weigh-unit">kg</div></div>',
+    '<div class="stat-progress-bar" style="margin-top:8px"><div class="stat-progress-fill stat-progress-fill--inorganic" id="wInoBar" style="width:'+S.ulIno+'%'+(S.ulIno>=95?';background:var(--c-danger)':S.ulIno>=80?';background:var(--c-accent)':'')+'"></div></div>',
+    '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--c-text-muted);margin-top:4px"><span id="wInoPct">'+S.ulIno+'% kapasitas</span><span>maks '+INORGANIC_MAX+' kg</span></div>',
+    '</div></div>',
+    '</div>',
+    '<div class="section-card"><div class="section-header"><div class="section-title">Kalkulasi Real-Time</div></div><div class="section-body"><div class="formula-card">',
+    '<div class="formula-label">BMP Refined (D7)</div><span id="fmBio">V = '+S.organic.toFixed(1)+' \u00D7 0.149 = <strong>'+bg.toFixed(2)+' m\u00B3</strong> biogas</span><br>',
+    '<div class="formula-label">Energi (IEA)</div><span id="fmEn">E = '+bg.toFixed(2)+' \u00D7 5.5 = <strong>'+en.toFixed(1)+' kWh</strong></span><br>',
+    '<div class="formula-label">Kompos (G15)</div><span id="fmCo">K = '+S.organic.toFixed(1)+' \u00D7 0.30 = <strong>'+co.toFixed(1)+' kg</strong></span><br>',
+    '<div class="formula-label">Kerugian Ekonomi Total</div><span id="fmLoss"><strong style="color:var(--c-danger)">'+fmtIDR(loss)+'</strong> jika semua limbah dibuang ke TPA</span>',
     '</div></div></div>',
     '<div class="section-card"><div class="section-header"><div class="section-title">Metode Terpilih ('+userMethods.organicOrder.length+' organik, '+userMethods.inorganic.length+' anorganik)</div></div><div class="section-body">',
     userMethods.organicOrder.map(function(id,i){var m=METHODS[id];return m?'<div class="ob-sel-item"><div class="ob-sel-num">'+(i+1)+'</div><span class="ob-sel-name">'+m.name+'</span><span class="tag tag-green" style="margin-left:auto">'+m.cat+'</span></div>':'';}).join(''),
@@ -356,7 +432,22 @@ function pgMeasure(pc){var bg=S.organic*BIOGAS_REFINED,en=bg*ENERGY_PER_M3,co=S.
     stp(5,'Analisis','Sistem hitung biogas, kompos, daur ulang, kerugian ekonomi. AI beri rekomendasi sesuai metode terpilih.'),
     '</div></div></div>'].join('');
 }
-function updateMeasLive(){var a=document.getElementById('wOrg'),b=document.getElementById('wIno');if(a)a.textContent=S.organic.toFixed(1);if(b)b.textContent=S.inorganic.toFixed(1);}
+function updateMeasLive(){
+  var a=document.getElementById('wOrg'),b=document.getElementById('wIno');if(!a||!b)return;
+  var bg=S.organic*BIOGAS_REFINED,en=bg*ENERGY_PER_M3,co=S.organic*COMPOST_RATIO,loss=calcLoss(S.organic,S.inorganic);
+  a.textContent=S.organic.toFixed(1); b.textContent=S.inorganic.toFixed(1);
+  var ob=document.getElementById('wOrgBar'),ib=document.getElementById('wInoBar');
+  if(ob){ob.style.width=S.ulOrg+'%';ob.style.background=S.ulOrg>=95?'var(--c-danger)':S.ulOrg>=80?'var(--c-accent)':'';}
+  if(ib){ib.style.width=S.ulIno+'%';ib.style.background=S.ulIno>=95?'var(--c-danger)':S.ulIno>=80?'var(--c-accent)':'';}
+  var op=document.getElementById('wOrgPct'),ip=document.getElementById('wInoPct');
+  if(op)op.textContent=S.ulOrg+'% kapasitas'; if(ip)ip.textContent=S.ulIno+'% kapasitas';
+  var fmBio=document.getElementById('fmBio'),fmEn=document.getElementById('fmEn'),fmCo=document.getElementById('fmCo'),fmLoss=document.getElementById('fmLoss');
+  if(fmBio)fmBio.innerHTML='V = '+S.organic.toFixed(1)+' × 0.149 = <strong>'+bg.toFixed(2)+' m³</strong> biogas';
+  if(fmEn)fmEn.innerHTML='E = '+bg.toFixed(2)+' × 5.5 = <strong>'+en.toFixed(1)+' kWh</strong>';
+  if(fmCo)fmCo.innerHTML='K = '+S.organic.toFixed(1)+' × 0.30 = <strong>'+co.toFixed(1)+' kg</strong>';
+  if(fmLoss)fmLoss.innerHTML='<strong style="color:var(--c-danger)">'+fmtIDR(loss)+'</strong> jika semua limbah dibuang ke TPA';
+  var upd=document.getElementById('measUpd');if(upd&&S.lastUpdate)upd.textContent=timeStr(S.lastUpdate);
+}
 
 function pgSensors(pc){var t=timeStr(S.lastUpdate||new Date());var ss=[{n:'Load Cell Organik',v:S.organic.toFixed(1),u:'kg',c:'#16a34a',p:S.ulOrg,h:'organic'},{n:'Load Cell Anorganik',v:S.inorganic.toFixed(1),u:'kg',c:'#0284c7',p:S.ulIno,h:'inorganic'},{n:'Suhu',v:S.temp.toFixed(1),u:'\u00B0C',c:'#dc2626',p:Math.min(100,S.temp/65*100),h:'temp'},{n:'pH',v:S.ph.toFixed(1),u:'pH',c:'#d97706',p:S.ph/14*100,h:'ph'},{n:'MQ-4 CH\u2084',v:S.mq4.toFixed(2),u:'%',c:'#7c3aed',p:S.mq4/2*100,h:'mq4'},{n:'DHT22 RH',v:S.humidity.toFixed(0),u:'%',c:'#0d9488',p:S.humidity/95*100,h:'humidity'},{n:'MQ-135 VOC',v:S.voc.toFixed(0),u:'ppm',c:'#e11d48',p:S.voc/200*100,h:'voc'}];
   var h='<div class="page-header"><div><h1 class="page-title">Sensor</h1><p class="page-subtitle">7 sensor + trend</p></div></div><div class="device-grid">';
